@@ -3,12 +3,33 @@ set -e
 
 echo "=== Gentoo Automated Installation Script ==="
 
-read -rp "Enter target disk (e.g., /dev/sda): " DISK
-read -rp "Enter your desired hostname: " HOSTNAME
-read -rp "Enter timezone (e.g., Europe/London): " TIMEZONE
-read -rp "Enter username: " USERNAME
-read -rp "Enter password (will be used for both root and user): " -s PASSWORD; echo
+# --- Default prompts ---
+read -rp "Enter target disk [/dev/sda]: " DISK
+DISK=${DISK:-/dev/sda}
 
+read -rp "Enter hostname [gentoo]: " HOSTNAME
+HOSTNAME=${HOSTNAME:-gentoo}
+
+read -rp "Enter timezone [Europe/London]: " TIMEZONE
+TIMEZONE=${TIMEZONE:-Europe/London}
+
+read -rp "Enter username [gentoo]: " USERNAME
+USERNAME=${USERNAME:-gentoo}
+
+PASSWORD=""
+while [ -z "$PASSWORD" ]; do
+    read -rp "Enter password (will be used for both root and user): " -s PASSWORD
+    echo
+done
+
+# --- Unmount previous mounts if any ---
+if mountpoint -q /mnt/gentoo; then
+    echo "Unmounting previous /mnt/gentoo mounts..."
+    umount -R /mnt/gentoo || true
+fi
+mkdir -p /mnt/gentoo
+
+# --- Disk setup ---
 sgdisk --zap-all "$DISK"
 wipefs -a "$DISK"
 partprobe "$DISK"
@@ -28,11 +49,13 @@ mount "$ROOT_PART" /mnt/gentoo
 mkdir -p /mnt/gentoo/boot
 mount "$BOOT_PART" /mnt/gentoo/boot
 
+# --- Download stage3 ---
 STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20250921T170345Z/stage3-amd64-systemd-20250921T170345Z.tar.xz"
 cd /mnt/gentoo
 wget "$STAGE3_URL" -O stage3.tar.xz
 tar xpf stage3.tar.xz --xattrs-include='*.*' --numeric-owner
 
+# --- Mount system directories ---
 mount --types proc /proc /mnt/gentoo/proc
 mount --rbind /sys /mnt/gentoo/sys
 mount --make-rslave /mnt/gentoo/sys
@@ -41,6 +64,7 @@ mount --make-rslave /mnt/gentoo/dev
 
 cp --dereference /etc/resolv.conf /mnt/gentoo/etc/
 
+# --- Chroot and configure system ---
 chroot /mnt/gentoo /bin/bash <<EOF
 set -e
 
@@ -59,6 +83,7 @@ echo "$HOSTNAME" > /etc/hostname
 echo "127.0.0.1   localhost" >> /etc/hosts
 echo "127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
+# --- USE flags for networkmanager ---
 mkdir -p /etc/portage/package.use
 echo "net-misc/networkmanager wifi" > /etc/portage/package.use/networkmanager
 echo "net-wireless/wpa_supplicant wifi" > /etc/portage/package.use/wpa_supplicant
@@ -66,8 +91,10 @@ echo "net-wireless/wpa_supplicant wifi" > /etc/portage/package.use/wpa_supplican
 mkdir -p /etc/portage/package.accept_keywords
 echo "net-misc/networkmanager ~amd64" > /etc/portage/package.accept_keywords/networkmanager
 
+# --- Install base system ---
 emerge sys-kernel/gentoo-sources grub syslog-ng dhcpcd networkmanager vim wget sudo
 
+# --- Fstab ---
 cat <<FSTAB > /etc/fstab
 $ROOT_PART / ext4 defaults 0 1
 $BOOT_PART /boot ext4 defaults 0 2
@@ -87,11 +114,12 @@ rc-update add NetworkManager default
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 echo "$USERNAME:$PASSWORD" | chpasswd
-
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
+# --- Install Xfce without login manager ---
 emerge x11-base/xorg-drivers x11-base/xorg-server xfce-base/xfce4-meta
 
+# --- Create .xinitrc for startx ---
 cat <<XINITRC > /home/$USERNAME/.xinitrc
 exec startxfce4
 XINITRC
