@@ -59,6 +59,13 @@ echo "$HOSTNAME" > /etc/hostname
 echo "127.0.0.1   localhost" >> /etc/hosts
 echo "127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
+mkdir -p /etc/portage/package.use
+echo "net-misc/networkmanager wifi" >> /etc/portage/package.use
+echo "net-wireless/wpa_supplicant wifi" >> /etc/portage/package.use
+
+mkdir -p /etc/portage/package.accept_keywords
+echo "net-misc/networkmanager ~amd64" >> /etc/portage/package.accept_keywords
+
 emerge sys-kernel/gentoo-sources grub syslog-ng dhcpcd networkmanager vim wget sudo
 
 cat <<FSTAB > /etc/fstab
@@ -84,6 +91,11 @@ echo "$USERNAME:$PASSWORD" | chpasswd
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 emerge x11-base/xorg-drivers x11-base/xorg-server xfce-base/xfce4-meta
+
+cat <<XINITRC > /home/$USERNAME/.xinitrc
+exec startxfce4
+XINITRC
+chown $USERNAME:$USERNAME /home/$USERNAME/.xinitrc
 EOF
 
 echo "=== Installation Complete ==="
