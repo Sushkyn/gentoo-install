@@ -1,0 +1,98 @@
+#!/bin/bash
+set -e
+
+echo "=== Gentoo Automated Installation Script ==="
+
+read -rp "Enter target disk (e.g., /dev/sda): " DISK
+echo "You selected $DISK"
+read -rp "All data on $DISK will be destroyed. Type 'yes' to continue: " CONFIRM
+if [[ "$CONFIRM" != "yes" ]]; then
+    echo "Aborting."
+    exit 1
+fi
+
+read -rp "Enter your desired hostname: " HOSTNAME
+read -rp "Enter timezone (e.g., Europe/London): " TIMEZONE
+read -rp "Enter username: " USERNAME
+read -rp "Enter password (will be used for both root and user): " -s PASSWORD; echo
+
+sgdisk --zap-all "$DISK"
+wipefs -a "$DISK"
+partprobe "$DISK"
+
+parted -s "$DISK" mklabel gpt
+parted -s "$DISK" mkpart primary 1MiB 512MiB
+parted -s "$DISK" set 1 boot on
+parted -s "$DISK" mkpart primary 512MiB 100%
+
+BOOT_PART="${DISK}1"
+ROOT_PART="${DISK}2"
+
+mkfs.ext4 "$BOOT_PART"
+mkfs.ext4 "$ROOT_PART"
+
+mount "$ROOT_PART" /mnt/gentoo
+mkdir -p /mnt/gentoo/boot
+mount "$BOOT_PART" /mnt/gentoo/boot
+
+STAGE3_URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20250921T170345Z/stage3-amd64-systemd-20250921T170345Z.tar.xz"
+cd /mnt/gentoo
+wget "$STAGE3_URL" -O stage3.tar.xz
+tar xpf stage3.tar.xz --xattrs-include='*.*' --numeric-owner
+
+mount --types proc /proc /mnt/gentoo/proc
+mount --rbind /sys /mnt/gentoo/sys
+mount --make-rslave /mnt/gentoo/sys
+mount --rbind /dev /mnt/gentoo/dev
+mount --make-rslave /mnt/gentoo/dev
+
+cp --dereference /etc/resolv.conf /mnt/gentoo/etc/
+
+chroot /mnt/gentoo /bin/bash <<EOF
+set -e
+
+emerge-webrsync
+emerge --sync
+
+echo "$TIMEZONE" > /etc/timezone
+emerge --config sys-libs/timezone-data
+
+echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen
+eselect locale set en_US.utf8
+env-update && source /etc/profile
+
+echo "$HOSTNAME" > /etc/hostname
+echo "127.0.0.1   localhost" >> /etc/hosts
+echo "127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
+
+emerge --ask sys-kernel/gentoo-sources grub syslog-ng dhcpcd networkmanager vim wget sudo
+
+cat <<FSTAB > /etc/fstab
+$ROOT_PART / ext4 defaults 0 1
+$BOOT_PART /boot ext4 defaults 0 2
+proc /proc proc defaults 0 0
+sysfs /sys sysfs defaults 0 0
+devpts /dev/pts devpts gid=5,mode=620 0 0
+tmpfs /run tmpfs defaults 0 0
+FSTAB
+
+echo "root:$PASSWORD" | chpasswd
+
+grub-install --target=i386-pc $DISK
+grub-mkconfig -o /boot/grub/grub.cfg
+
+rc-update add dhcpcd default
+rc-update add NetworkManager default
+
+useradd -m -G wheel -s /bin/bash $USERNAME
+echo "$USERNAME:$PASSWORD" | chpasswd
+
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
+emerge --ask x11-base/xorg-drivers x11-base/xorg-server xfce-base/xfce4-meta
+rc-update add xdm default
+EOF
+
+echo "=== Installation Complete ==="
+echo "You can now reboot and login as $USERNAME on TTY."
