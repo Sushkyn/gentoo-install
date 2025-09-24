@@ -83,13 +83,14 @@ echo "$HOSTNAME" > /etc/hostname
 echo "127.0.0.1   localhost" >> /etc/hosts
 echo "127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
-# --- USE flags for networkmanager ---
+# --- USE flags and keywords for networking ---
 mkdir -p /etc/portage/package.use
-echo "net-misc/networkmanager wifi" > /etc/portage/package.use/networkmanager
-echo "net-wireless/wpa_supplicant wifi" > /etc/portage/package.use/wpa_supplicant
+echo "net-misc/networkmanager wifi iwd" > /etc/portage/package.use/networkmanager
+echo "net-wireless/wpa_supplicant wifi dbus" > /etc/portage/package.use/wpa_supplicant
 
 mkdir -p /etc/portage/package.accept_keywords
 echo "net-misc/networkmanager ~amd64" > /etc/portage/package.accept_keywords/networkmanager
+echo "net-wireless/wpa_supplicant ~amd64" > /etc/portage/package.accept_keywords/wpa_supplicant
 
 # --- Install base system ---
 emerge sys-kernel/gentoo-sources grub syslog-ng dhcpcd networkmanager vim wget sudo
